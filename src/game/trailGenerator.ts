@@ -402,16 +402,11 @@ export function generateTrail(trackData: TrackData): GeneratedTrail {
   // Multi-frequency 5-octave Fractal Brownian Motion (FBM) procedural mountain heightmap
   const fbmTerrain = (x: number, z: number) => {
     let val = 0;
-    // Octave 1: Grand continental alpine massif ridges & sweeping mountain shoulders
-    val += Math.sin(x * 0.007 + 0.4) * Math.cos(z * 0.005 + 0.7) * 58;
-    // Octave 2: Spur valleys, secondary peaks, and drainage gullies
-    val += Math.sin(x * 0.018 + z * 0.014 + 1.2) * 26;
-    // Octave 3: Knolls, rocky bench terraces, and natural mountain folds
-    val += Math.cos(x * 0.042 - z * 0.038 + 2.1) * 11.5;
-    // Octave 4: Craggy scree micro-relief and granite outcrops
-    val += Math.sin(x * 0.095 + z * 0.082) * 4.2;
-    // Octave 5: Fine gravel mounds and singletrack shoulder undulations
-    val += Math.cos(x * 0.22 - z * 0.19) * 1.4;
+    // Broad rolling alpine valley ridges with softer gradients than the previous sharper mountain noise
+    val += Math.sin(x * 0.004 + 0.4) * Math.cos(z * 0.0035 + 0.7) * 28;
+    val += Math.sin(x * 0.011 + z * 0.009 + 1.2) * 16;
+    val += Math.cos(x * 0.026 - z * 0.024 + 1.5) * 8;
+    val += Math.sin(x * 0.08 + z * 0.06) * 2.8;
     return val;
   };
 
@@ -437,16 +432,16 @@ export function generateTrail(trackData: TrackData): GeneratedTrail {
     const distToTrack = Math.sqrt(bestDistSq);
     const mountainNoise = fbmTerrain(x, z);
 
-    let vy = closestSample.position.y - 0.45;
+    // Broad valley ramp: smooth and grassy rather than steep, jagged mountain flanks
+    let vy = closestSample.position.y - 0.5;
     if (distToTrack > 14) {
-      const blendFactor = Math.min(1.0, (distToTrack - 14) / 38);
-      // Natural rolling mountain flank rise, preventing any negative plunging void
-      const flankRise = Math.pow((distToTrack - 14) / 36, 1.28) * 14;
-      vy = closestSample.position.y - 0.85 + mountainNoise * blendFactor * 0.85 + flankRise;
+      const blendFactor = Math.min(1.0, (distToTrack - 14) / 42);
+      const valleyRise = Math.pow((distToTrack - 14) / 38, 1.5) * 18;
+      vy = closestSample.position.y - 0.8 + mountainNoise * 0.12 + valleyRise * (0.55 + blendFactor * 0.45);
     } else {
       const apronT = distToTrack / 14;
-      // Smooth contoured track apron hugging the singletrack tread
-      vy += -0.22 * apronT + (mountainNoise * 0.15) * apronT;
+      const edgeBlend = 1 - Math.min(1, apronT * 1.15);
+      vy += -0.12 * apronT + (mountainNoise * 0.1) * edgeBlend;
     }
     return vy;
   };
@@ -660,7 +655,7 @@ export function generateTrail(trackData: TrackData): GeneratedTrail {
     return tree;
   };
 
-  // --- Granite Boulders & Rock Garden Slabs ---
+  // --- Granite Boulders & Rock Slab ---
   const boulderGeom = new THREE.DodecahedronGeometry(1.9, 1);
   const rockSlabGeom = new THREE.BoxGeometry(2.4, 0.5, 3.2);
   const boulderMat = new THREE.MeshStandardMaterial({
