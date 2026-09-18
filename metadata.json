@@ -1,0 +1,6 @@
+{
+  "name": "Downhill MTB 3D - First Person Mountain Biking",
+  "description": "Realistic first-person downhill mountain biking simulator with dynamic suspension physics, custom bike components, and multiple alpine trails.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
