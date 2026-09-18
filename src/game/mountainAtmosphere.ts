@@ -79,6 +79,7 @@ export function createMountainAtmosphere(skyColorHex: string, fogColorHex: strin
     opacity: 0.42,
     depthWrite: false,
   });
+  const clouds: THREE.Mesh[] = [];
 
   for (let c = 0; c < cloudCount; c++) {
     const cloudGeom = new THREE.DodecahedronGeometry(45 + Math.random() * 35, 1);
@@ -91,8 +92,10 @@ export function createMountainAtmosphere(skyColorHex: string, fogColorHex: strin
       Math.sin(angle) * rad
     );
     cloudMesh.scale.set(2.4 + Math.random(), 0.5 + Math.random() * 0.3, 1.8 + Math.random());
+    clouds.push(cloudMesh);
     atmosGroup.add(cloudMesh);
   }
 
+  atmosGroup.userData.clouds = clouds;
   return atmosGroup;
 }
