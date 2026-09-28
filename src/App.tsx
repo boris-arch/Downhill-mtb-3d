@@ -22,6 +22,7 @@ export default function App() {
   const [cameraView, setCameraView] = useState<CameraView>('first_person_helmet');
   const [isMuted, setIsMuted] = useState<boolean>(false);
   const [showControlsHint, setShowControlsHint] = useState<boolean>(true);
+  const [showDebugInfo, setShowDebugInfo] = useState<boolean>(false);
 
   // Modals
   const [isGarageOpen, setIsGarageOpen] = useState<boolean>(false);
@@ -42,6 +43,51 @@ export default function App() {
     whipLeft: false,
     whipRight: false,
   });
+
+  const setControlState = useCallback((code: string, pressed: boolean) => {
+    switch (code) {
+      case 'KeyW':
+      case 'ArrowUp':
+        controlsRef.current.pedal = !!pressed;
+        break;
+      case 'KeyS':
+      case 'ArrowDown':
+        controlsRef.current.brake = !!pressed;
+        break;
+      case 'KeyX':
+        controlsRef.current.frontBrake = !!pressed;
+        break;
+      case 'KeyA':
+      case 'ArrowLeft':
+        controlsRef.current.steerLeft = !!pressed;
+        break;
+      case 'KeyD':
+      case 'ArrowRight':
+        controlsRef.current.steerRight = !!pressed;
+        break;
+      case 'Space':
+        controlsRef.current.bunnyHop = !!pressed;
+        break;
+      case 'KeyF':
+        controlsRef.current.pump = !!pressed;
+        break;
+      case 'ShiftLeft':
+      case 'ShiftRight':
+        controlsRef.current.tuck = !!pressed;
+        break;
+      case 'KeyZ':
+        controlsRef.current.leanBack = !!pressed;
+        break;
+      case 'KeyQ':
+        controlsRef.current.whipLeft = !!pressed;
+        break;
+      case 'KeyE':
+        controlsRef.current.whipRight = !!pressed;
+        break;
+      default:
+        break;
+    }
+  }, []);
 
   // Telemetry state
   const [telemetry, setTelemetry] = useState<TelemetryData>({
@@ -105,48 +151,52 @@ export default function App() {
       switch (e.code) {
         case 'KeyW':
         case 'ArrowUp':
-          controlsRef.current.pedal = true;
+          setControlState('KeyW', true);
           break;
         case 'KeyS':
         case 'ArrowDown':
-          controlsRef.current.brake = true;
+          setControlState('KeyS', true);
           break;
         case 'KeyX':
-          controlsRef.current.frontBrake = true;
+          setControlState('KeyX', true);
           break;
         case 'KeyA':
         case 'ArrowLeft':
-          controlsRef.current.steerLeft = true;
+          setControlState('KeyA', true);
           break;
         case 'KeyD':
         case 'ArrowRight':
-          controlsRef.current.steerRight = true;
+          setControlState('KeyD', true);
           break;
         case 'Space':
           e.preventDefault();
-          controlsRef.current.bunnyHop = true;
+          setControlState('Space', true);
           break;
         case 'KeyF':
-          controlsRef.current.pump = true;
+          setControlState('KeyF', true);
           break;
         case 'ShiftLeft':
         case 'ShiftRight':
-          controlsRef.current.tuck = true;
+          setControlState('ShiftLeft', true);
           break;
         case 'KeyZ':
-          controlsRef.current.leanBack = true;
+          setControlState('KeyZ', true);
           break;
         case 'KeyQ':
-          controlsRef.current.whipLeft = true;
+          setControlState('KeyQ', true);
           break;
         case 'KeyE':
-          controlsRef.current.whipRight = true;
+          setControlState('KeyE', true);
           break;
         case 'KeyC':
           cycleCamera();
           break;
         case 'KeyR':
           handleResetTrack();
+          break;
+        case 'KeyH':
+          setShowDebugInfo((prev) => !prev);
+          if (physicsRef.current) physicsRef.current.toggleDebugOverlay();
           break;
         case 'Escape':
           setGameState((prev) => (prev === 'RACING' ? 'PAUSED' : prev === 'PAUSED' ? 'RACING' : prev));
@@ -158,41 +208,41 @@ export default function App() {
       switch (e.code) {
         case 'KeyW':
         case 'ArrowUp':
-          controlsRef.current.pedal = false;
+          setControlState('KeyW', false);
           break;
         case 'KeyS':
         case 'ArrowDown':
-          controlsRef.current.brake = false;
+          setControlState('KeyS', false);
           break;
         case 'KeyX':
-          controlsRef.current.frontBrake = false;
+          setControlState('KeyX', false);
           break;
         case 'KeyA':
         case 'ArrowLeft':
-          controlsRef.current.steerLeft = false;
+          setControlState('KeyA', false);
           break;
         case 'KeyD':
         case 'ArrowRight':
-          controlsRef.current.steerRight = false;
+          setControlState('KeyD', false);
           break;
         case 'Space':
-          controlsRef.current.bunnyHop = false;
+          setControlState('Space', false);
           break;
         case 'KeyF':
-          controlsRef.current.pump = false;
+          setControlState('KeyF', false);
           break;
         case 'ShiftLeft':
         case 'ShiftRight':
-          controlsRef.current.tuck = false;
+          setControlState('ShiftLeft', false);
           break;
         case 'KeyZ':
-          controlsRef.current.leanBack = false;
+          setControlState('KeyZ', false);
           break;
         case 'KeyQ':
-          controlsRef.current.whipLeft = false;
+          setControlState('KeyQ', false);
           break;
         case 'KeyE':
-          controlsRef.current.whipRight = false;
+          setControlState('KeyE', false);
           break;
       }
     };
@@ -204,7 +254,7 @@ export default function App() {
       window.removeEventListener('keydown', handleKeyDown);
       window.removeEventListener('keyup', handleKeyUp);
     };
-  }, []);
+  }, [cycleCamera, handleResetTrack, setControlState]);
 
   const cycleCamera = useCallback(() => {
     setCameraView((prev) => {
@@ -228,36 +278,19 @@ export default function App() {
 
   const handleControlInput = (code: string, pressed: boolean) => {
     soundEngine.ensureContext();
-    switch (code) {
-      case 'KeyW':
-        controlsRef.current.pedal = pressed;
-        break;
-      case 'KeyS':
-        controlsRef.current.brake = pressed;
-        break;
-      case 'KeyX':
-        controlsRef.current.frontBrake = pressed;
-        break;
-      case 'KeyA':
-        controlsRef.current.steerLeft = pressed;
-        break;
-      case 'KeyD':
-        controlsRef.current.steerRight = pressed;
-        break;
-      case 'Space':
-        controlsRef.current.bunnyHop = pressed;
-        break;
-      case 'KeyF':
-        controlsRef.current.pump = pressed;
-        break;
-      case 'ShiftLeft':
-      case 'ShiftRight':
-        controlsRef.current.tuck = pressed;
-        break;
-      case 'KeyZ':
-        controlsRef.current.leanBack = pressed;
-        break;
-    }
+    setControlState(code, pressed);
+  };
+
+  const debugInfo = physicsRef.current?.getDebugInfo?.() ?? {
+    frontCompression: telemetry.frontForkTravelPercent,
+    rearCompression: telemetry.rearShockTravelPercent,
+    frontPenetration: 0,
+    rearPenetration: 0,
+    surface: telemetry.surfaceName,
+    isGrounded: telemetry.isGrounded,
+    speedKmh: telemetry.speedKmh,
+    frontWheelWorldY: 0,
+    rearWheelWorldY: 0,
   };
 
   return (
@@ -296,6 +329,26 @@ export default function App() {
         />
       )}
 
+      {showDebugInfo && (
+        <div className="absolute right-4 top-20 z-40 w-64 rounded-xl border border-sky-500/50 bg-slate-950/80 p-3 text-[10px] font-mono text-sky-200 shadow-2xl backdrop-blur-md">
+          <div className="mb-2 flex items-center justify-between border-b border-slate-700 pb-1">
+            <span className="font-bold uppercase tracking-wider text-sky-400">Debug</span>
+            <span className="text-slate-400">H</span>
+          </div>
+          <div className="space-y-1">
+            <div>speed {debugInfo.speedKmh.toFixed(1)} km/h</div>
+            <div>surface {debugInfo.surface}</div>
+            <div>grounded {debugInfo.isGrounded ? 'yes' : 'no'}</div>
+            <div>front comp {debugInfo.frontCompression.toFixed(3)}</div>
+            <div>rear comp {debugInfo.rearCompression.toFixed(3)}</div>
+            <div>front pen {debugInfo.frontPenetration.toFixed(3)}m</div>
+            <div>rear pen {debugInfo.rearPenetration.toFixed(3)}m</div>
+            <div>y front {debugInfo.frontWheelWorldY.toFixed(2)}</div>
+            <div>y rear {debugInfo.rearWheelWorldY.toFixed(2)}</div>
+          </div>
+        </div>
+      )}
+
       {/* Main Heads-Up Display */}
       {gameState === 'RACING' && (
         <HUD
@@ -313,7 +366,7 @@ export default function App() {
 
       {/* Quick Controls Hint Pill (Hidden on Touch Devices / iPad) */}
       {showControlsHint && !isTouchDevice && gameState === 'RACING' && (
-        <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-2xl px-5 py-2.5 shadow-2xl flex items-center gap-3 sm:gap-4 text-[11px] sm:text-xs font-mono text-slate-300 pointer-events-none animate-pulse">
+        <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-2xl px-5 py-2.5 shadow-2xl flex items-center gap-3 sm:gap-4 text-[10px] sm:text-xs text-slate-200 z-20">
           <div className="flex items-center gap-1">
             <kbd className="bg-slate-800 px-1.5 py-0.5 rounded text-white font-bold">W</kbd> Pedal
           </div>
