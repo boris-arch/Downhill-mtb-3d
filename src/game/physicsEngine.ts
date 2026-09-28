@@ -101,6 +101,19 @@ export class MTBPhysics {
   public activeApproachingGate: GateApproachInfo | null = null;
   private passedGateCues = new Set<number>();
 
+  public debugOverlayEnabled = false;
+  public debugInfo = {
+    frontCompression: 0,
+    rearCompression: 0,
+    frontPenetration: 0,
+    rearPenetration: 0,
+    surface: 'dirt' as SurfaceType,
+    isGrounded: true,
+    speedKmh: 0,
+    frontWheelWorldY: 0,
+    rearWheelWorldY: 0,
+  };
+
   private hopCharge = 0;
   private pedalVelocity = 0;
   private lastPumpTime = 0;
@@ -109,7 +122,6 @@ export class MTBPhysics {
   private camLookAt = new THREE.Vector3();
   private camUp = new THREE.Vector3(0, 1, 0);
 
-  // New internal wheel states.
   private frontWheel: WheelRayState = this.createWheelState();
   private rearWheel: WheelRayState = this.createWheelState();
 
@@ -121,6 +133,21 @@ export class MTBPhysics {
 
   constructor() {
     this.reset();
+  }
+
+  public toggleDebugOverlay() {
+    this.debugOverlayEnabled = !this.debugOverlayEnabled;
+  }
+
+  public getDebugInfo() {
+    return {
+      ...this.debugInfo,
+      frontCompression: Number(this.frontSuspensionCompression.toFixed(3)),
+      rearCompression: Number(this.rearSuspensionCompression.toFixed(3)),
+      speedKmh: Number((this.speed * 3.6).toFixed(1)),
+      surface: this.currentSurface,
+      isGrounded: this.isGrounded,
+    };
   }
 
   private createWheelState(): WheelRayState {
@@ -258,6 +285,18 @@ export class MTBPhysics {
 
     const avgGround = (this.frontWheel.groundHeight + this.rearWheel.groundHeight) * 0.5;
     this.verticalOffset = Math.max(0, avgGround - this.worldAltitude);
+
+    this.debugInfo = {
+      frontCompression: this.frontSuspensionCompression,
+      rearCompression: this.rearSuspensionCompression,
+      frontPenetration: this.frontWheel.penetration,
+      rearPenetration: this.rearWheel.penetration,
+      surface: this.currentSurface,
+      isGrounded: this.isGrounded,
+      speedKmh: this.speed * 3.6,
+      frontWheelWorldY: this.frontWheel.worldPos.y,
+      rearWheelWorldY: this.rearWheel.worldPos.y,
+    };
   }
 
   reset(trail?: GeneratedTrail) {
