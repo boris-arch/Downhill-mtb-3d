@@ -604,27 +604,29 @@ class SoundEngine {
       const t = this.ctx.currentTime;
       const clampedIntensity = Math.min(1.0, Math.max(0.1, intensity));
 
-      // 1. Warm metallic rotor pad friction (lowpass filtered 1200-1600Hz, no piercing squeal)
+      // 1. Warm metallic rotor pad friction with Biquad lowpass filter at 1500Hz
       const osc = this.ctx.createOscillator();
       const gain = this.ctx.createGain();
-      const filter = this.ctx.createBiquadFilter();
+      const brakeFilter = this.ctx.createBiquadFilter();
 
       osc.type = 'triangle';
       // Pitch modulates with deceleration intensity (420Hz - 850Hz)
       osc.frequency.setValueAtTime(420 + clampedIntensity * 430, t);
       osc.frequency.exponentialRampToValueAtTime(260, t + 0.18);
 
-      filter.type = 'lowpass';
-      // Cutoff strictly around 1200Hz–1600Hz to remove harshness
-      filter.frequency.setValueAtTime(1200 + clampedIntensity * 400, t);
-      filter.Q.setValueAtTime(1.1, t);
+      // Insert BiquadFilterNode between brake audio source and destination:
+      // Set filter type to 'lowpass' and frequency.value to 1500 Hz to muffle harsh frequencies into a deeper rubbing sound
+      brakeFilter.type = 'lowpass';
+      brakeFilter.frequency.value = 1500;
+      brakeFilter.Q.value = 1.0;
 
       // Volume modulates according to deceleration intensity
       gain.gain.setValueAtTime(0.09 * clampedIntensity, t);
       gain.gain.exponentialRampToValueAtTime(0.001, t + 0.18);
 
-      osc.connect(filter);
-      filter.connect(gain);
+      // Connect brake source -> BiquadFilterNode (lowpass 1500Hz) -> gain -> destination
+      osc.connect(brakeFilter);
+      brakeFilter.connect(gain);
       gain.connect(this.ctx.destination);
 
       osc.start(t);

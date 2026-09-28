@@ -117,6 +117,7 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
     let lastTime = performance.now();
     let dustSpawnIndex = 0;
     const clouds = (atmosphere.userData.clouds as THREE.Mesh[] | undefined) ?? [];
+    const currentLookAt = new THREE.Vector3();
 
     const animate = (currentTime: number) => {
       animationFrameId = requestAnimationFrame(animate);
@@ -131,6 +132,30 @@ export const GameCanvas: React.FC<GameCanvasProps> = ({
       if (!isPaused && trailRef.current) {
         physics.update(deltaSeconds, controlsRef.current, bikeConfig, trailRef.current);
         physics.updateBikeAndCamera(bikeSystem.rootGroup, trailRef.current, camera, cameraView, deltaSeconds);
+
+        // Toggle rider mesh visibility: show in third-person view, hide in first-person views
+        if (bikeSystem.riderGroup) {
+          bikeSystem.riderGroup.visible = cameraView === 'chase_cam';
+        }
+
+        // 2. Smooth Spring-Arm Chase Camera:
+        if (cameraView === 'chase_cam') {
+          const bike = bikeSystem.rootGroup;
+          const bikeQuat = bike.quaternion;
+          const bikeForward = new THREE.Vector3(0, 0, -1).applyQuaternion(bikeQuat);
+          const bikeUp = new THREE.Vector3(0, 1, 0).applyQuaternion(bikeQuat);
+          const targetPos = bike.position.clone()
+            .addScaledVector(bikeForward, -4.5)
+            .addScaledVector(bikeUp, 2.2);
+
+          camera.position.lerp(targetPos, deltaSeconds * 8.0);
+          currentLookAt.lerp(
+            bike.position.clone().addScaledVector(bikeUp, 0.8),
+            deltaSeconds * 10.0
+          );
+          camera.lookAt(currentLookAt);
+        }
+
         atmosphere.position.copy(camera.position);
         const currentAlt = trailRef.current.getPointAtDistance(physics.trackDistance).position.y;
         bikeSystem.updateTransforms(

@@ -180,22 +180,41 @@ export function generateTrail(trackData: TrackData): GeneratedTrail {
   const sampleSteps = Math.floor(totalLength / 1.2);
   const samples: TrailPoint[] = [];
 
+  const isFiniteVec = (v: THREE.Vector3) => isFinite(v.x) && isFinite(v.y) && isFinite(v.z);
+
   for (let s = 0; s <= sampleSteps; s++) {
     const t = s / sampleSteps;
-    const pos = curve.getPointAt(t);
-    const tangent = curve.getTangentAt(t).normalize();
+    let pos = curve.getPointAt(t);
+    // Clamp tangent evaluation strictly away from boundary singularity
+    const safeT = Math.min(0.9998, Math.max(0.0002, t));
+    let tangent = curve.getTangentAt(safeT);
+
+    // Guard against NaN or degenerate (0,0,0) spline interpolation failure
+    if (!isFiniteVec(pos) || (pos.x === 0 && pos.y === 0 && pos.z === 0 && s > 0)) {
+      pos = samples[s - 1] ? samples[s - 1].position.clone() : new THREE.Vector3(0, totalDrop, 0);
+    }
+    if (!isFiniteVec(tangent) || tangent.lengthSq() < 1e-5) {
+      tangent = samples[s - 1] ? samples[s - 1].tangent.clone() : new THREE.Vector3(0, 0, -1);
+    } else {
+      tangent.normalize();
+    }
+
     const wpIdx = Math.min(waypoints.length - 2, Math.floor(t * (waypoints.length - 1)));
     const localT = (t * (waypoints.length - 1)) - wpIdx;
 
-    const bankA = bankAngles[wpIdx] * (1 - localT) + bankAngles[wpIdx + 1] * localT;
-    const type = sectionTypes[wpIdx];
-    const surface = surfaces[wpIdx];
+    const bankA = isFinite(bankAngles[wpIdx]) && isFinite(bankAngles[wpIdx + 1])
+      ? bankAngles[wpIdx] * (1 - localT) + bankAngles[wpIdx + 1] * localT
+      : 0;
+    const type = sectionTypes[wpIdx] || 'straight';
+    const surface = surfaces[wpIdx] || 'dirt';
 
     const up = new THREE.Vector3(0, 1, 0);
     let right = new THREE.Vector3().crossVectors(tangent, up).normalize();
-    if (right.lengthSq() < 0.001) right.set(1, 0, 0);
+    if (!isFiniteVec(right) || right.lengthSq() < 0.001) right.set(1, 0, 0);
 
-    const normal = new THREE.Vector3().crossVectors(right, tangent).normalize();
+    let normal = new THREE.Vector3().crossVectors(right, tangent).normalize();
+    if (!isFiniteVec(normal) || normal.lengthSq() < 0.001) normal.set(0, 1, 0);
+
     normal.applyAxisAngle(tangent, bankA);
     right.applyAxisAngle(tangent, bankA);
 
@@ -213,7 +232,7 @@ export function generateTrail(trackData: TrackData): GeneratedTrail {
       binormal: right,
       bankAngle: bankA,
       width,
-      grade,
+      grade: isFinite(grade) ? grade : 0,
       type,
       surface,
       distance: t * totalLength,
@@ -359,6 +378,7 @@ export function generateTrail(trackData: TrackData): GeneratedTrail {
   // 7: Shoulder / Outer Berm Lip Right
   // 8: Skirt Right (deep anchor beneath terrain)
   const numCrossVerts = 9;
+  let prevSlicePts: THREE.Vector3[] = [];
 
   for (let i = 0; i < samples.length; i++) {
     const sp = samples[i];
@@ -390,8 +410,21 @@ export function generateTrail(trackData: TrackData): GeneratedTrail {
     else if (sp.surface === 'loose_gravel') mainColor = gravelColor;
 
     slicePts.forEach((p, idx) => {
+      // Prevent vertices from defaulting to (0,0,0) or NaN.
+      // If a segment fails spline interpolation, clamp it to previous valid vertex rather than creating stretched, degenerate geometry across the scene.
+      if (!isFinite(p.x) || !isFinite(p.y) || !isFinite(p.z) || (p.x === 0 && p.y === 0 && p.z === 0 && i > 0)) {
+        if (prevSlicePts[idx] && isFinite(prevSlicePts[idx].x)) {
+          p.copy(prevSlicePts[idx]);
+        } else {
+          p.copy(sp.position);
+        }
+      }
+
       trailVerts.push(p.x, p.y, p.z);
-      trailNorms.push(sp.normal.x, sp.normal.y, sp.normal.z);
+      const nx = isFinite(sp.normal.x) ? sp.normal.x : 0;
+      const ny = isFinite(sp.normal.y) ? sp.normal.y : 1;
+      const nz = isFinite(sp.normal.z) ? sp.normal.z : 0;
+      trailNorms.push(nx, ny, nz);
       trailUvs.push(idx / (numCrossVerts - 1), uvV);
 
       // Vertex color distribution across track for extreme contrast & unmistakable readability
@@ -414,6 +447,8 @@ export function generateTrail(trackData: TrackData): GeneratedTrail {
       }
       trailColors.push(c.r, c.g, c.b);
     });
+
+    prevSlicePts = slicePts.map((pt) => pt.clone());
 
     if (i > 0) {
       const curr = i * numCrossVerts;
@@ -609,7 +644,7 @@ export function generateTrail(trackData: TrackData): GeneratedTrail {
 
     let vy = getTerrainHeight(vx, vz);
     if (isPerimeter) {
-      vy = -220.0; // Deep terrain skirt dropping into foundation (eliminates all hollow seams)
+      vy = -150.0; // Force outermost boundary vertices down to -150 to create a skirt that hides the void
     } else if (isInnerPerimeter) {
       vy = Math.min(vy, -75.0);
     }
@@ -729,6 +764,40 @@ export function generateTrail(trackData: TrackData): GeneratedTrail {
   // Strictly queries terrain mesh geometry to ensure zero props hover mid-air in skybox
   const propRaycaster = new THREE.Raycaster();
   const downRayVector = new THREE.Vector3(0, -1, 0);
+
+  // Procedural prop placement function with strict vertical raycast grounding & immediate disposal
+  const placeGroundedProp = (
+    prop: THREE.Object3D,
+    x: number,
+    z: number,
+    yOffset: number = 0,
+    targetGroup: THREE.Group = sceneryGroup
+  ): { y: number; normal: THREE.Vector3 } | null => {
+    propRaycaster.set(new THREE.Vector3(x, 1200, z), downRayVector);
+    const intersects = propRaycaster.intersectObject(terrainMesh);
+
+    if (intersects.length > 0 && intersects[0].point) {
+      prop.position.set(x, intersects[0].point.y + yOffset, z);
+      targetGroup.add(prop);
+      const faceNormal = intersects[0].face?.normal ? intersects[0].face.normal.clone() : getTerrainNormal(x, z);
+      return { y: intersects[0].point.y, normal: faceNormal };
+    } else {
+      // If NO intersection is found (intersects.length === 0), immediately remove prop from scene
+      // and dispose of its geometry/material so it doesn't float in the sky.
+      targetGroup.remove(prop);
+      prop.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry?.dispose();
+          if (Array.isArray(child.material)) {
+            child.material.forEach((mat) => mat.dispose());
+          } else if (child.material) {
+            child.material.dispose();
+          }
+        }
+      });
+      return null;
+    }
+  };
 
   const getRaycastTerrainContact = (x: number, z: number): { y: number; normal: THREE.Vector3 } | null => {
     propRaycaster.set(new THREE.Vector3(x, 1200, z), downRayVector);
@@ -910,19 +979,27 @@ export function generateTrail(trackData: TrackData): GeneratedTrail {
 
     const normal = curve.getTangentAt(t).cross(new THREE.Vector3(0, 1, 0)).normalize();
     const treePos = pt.clone().addScaledVector(normal, side * offsetDist);
-    // Strict vertical raycast to terrain geometry:
-    const contact = getRaycastTerrainContact(treePos.x, treePos.z);
-    if (!contact) continue;
-    treePos.y = contact.y;
-    // Prevent trees spawning underwater in the alpine fjord lake
-    if (isAlpineRidge && treePos.y <= 19.5) continue;
-    // Ensure trees do not spawn floating on sheer cliff bands (slope > 46 degrees)
-    if (contact.normal.y < 0.69) continue;
 
     const scale = isLoam ? (1.0 + Math.random() * 1.5) : (0.8 + Math.random() * 0.9);
-    const tree = createDetailedTree(treePos.x, treePos.y, treePos.z, scale);
+    const tree = createDetailedTree(treePos.x, 0, treePos.z, scale);
     tree.rotation.set(0, Math.random() * Math.PI * 2, 0); // strictly upright Y-axis aligned
-    sceneryGroup.add(tree);
+
+    // Strict vertical raycast to terrain geometry: set position.y to intersects[0].point.y or dispose
+    const contact = placeGroundedProp(tree, treePos.x, treePos.z, 0, sceneryGroup);
+    if (!contact) continue;
+
+    // Prevent trees spawning underwater in the alpine fjord lake or on sheer cliff bands
+    if ((isAlpineRidge && tree.position.y <= 19.5) || contact.normal.y < 0.69) {
+      sceneryGroup.remove(tree);
+      tree.traverse((child) => {
+        if (child instanceof THREE.Mesh) {
+          child.geometry?.dispose();
+          if (Array.isArray(child.material)) child.material.forEach((m) => m.dispose());
+          else child.material?.dispose();
+        }
+      });
+      continue;
+    }
 
     // Register trees near the trail verge as physical colliders
     if (offsetDist < 12.0) {
@@ -944,15 +1021,25 @@ export function generateTrail(trackData: TrackData): GeneratedTrail {
       const normal = curve.getTangentAt(t).cross(new THREE.Vector3(0, 1, 0)).normalize();
       const lakeDist = 12.0 + Math.random() * 65.0;
       const pos = pt.clone().addScaledVector(normal, lakeDist);
-      const contact = getRaycastTerrainContact(pos.x, pos.z);
-      if (!contact) continue;
-      pos.y = contact.y;
-      if (pos.y <= 19.5 || contact.normal.y < 0.62) continue;
 
       const s = 0.85 + Math.random() * 0.85;
-      const pine = createDetailedTree(pos.x, pos.y, pos.z, s);
+      const pine = createDetailedTree(pos.x, 0, pos.z, s);
       pine.rotation.y = Math.random() * Math.PI * 2;
-      sceneryGroup.add(pine);
+
+      const contact = placeGroundedProp(pine, pos.x, pos.z, 0, sceneryGroup);
+      if (!contact) continue;
+
+      if ((isAlpineRidge && pine.position.y <= 19.5) || contact.normal.y < 0.62) {
+        sceneryGroup.remove(pine);
+        pine.traverse((child) => {
+          if (child instanceof THREE.Mesh) {
+            child.geometry?.dispose();
+            if (Array.isArray(child.material)) child.material.forEach((m) => m.dispose());
+            else child.material?.dispose();
+          }
+        });
+        continue;
+      }
     }
   }
 
@@ -971,24 +1058,26 @@ export function generateTrail(trackData: TrackData): GeneratedTrail {
 
     const normal = curve.getTangentAt(t).cross(new THREE.Vector3(0, 1, 0)).normalize();
     const rockPos = pt.clone().addScaledVector(normal, side * offsetDist);
-    // Strict vertical raycast down to terrain mesh geometry:
-    const contact = getRaycastTerrainContact(rockPos.x, rockPos.z);
-    if (!contact) continue;
-    if (isAlpineRidge && contact.y <= 19.5) continue;
-    if (contact.normal.y < 0.60) continue; // Skip steep cliff faces to prevent hovering or floating
 
-    // Embed lower half of boulder into the terrain for realistic grounded mass
-    rockPos.y = contact.y + (isSlab ? 0.08 : 0.20 * s);
-
-    const mesh = new THREE.Mesh(isSlab ? rockSlabGeom : boulderGeom, isSlab ? slabMat : boulderMat);
+    const mesh = new THREE.Mesh(isSlab ? rockSlabGeom.clone() : boulderGeom.clone(), isSlab ? slabMat : boulderMat);
     mesh.scale.set(s * (0.8 + Math.random() * 0.5), s * (isSlab ? 0.4 : 0.75), s * (0.8 + Math.random() * 0.5));
-    mesh.position.copy(rockPos);
+
+    // Strict vertical raycast to terrain geometry:
+    // If found, set position.y to intersects[0].point.y; if not, remove and dispose
+    const yOffset = isSlab ? 0.08 : 0.20 * s;
+    const contact = placeGroundedProp(mesh, rockPos.x, rockPos.z, yOffset, sceneryGroup);
+    if (!contact) continue;
+
+    if ((isAlpineRidge && mesh.position.y <= 19.5) || contact.normal.y < 0.60) {
+      sceneryGroup.remove(mesh);
+      mesh.geometry?.dispose();
+      continue;
+    }
 
     // Ground normal alignment for natural bedding planes
     mesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), contact.normal);
     mesh.rotateY(Math.random() * Math.PI * 2);
     mesh.castShadow = true;
-    sceneryGroup.add(mesh);
   }
 
   // 3. Trailside vegetation (ferns & bushes right next to the trail verge)

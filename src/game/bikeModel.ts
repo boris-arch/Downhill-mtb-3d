@@ -4,6 +4,7 @@ import { BikeCustomization } from '../types/game';
 export interface BikeMeshSystem {
   rootGroup: THREE.Group;
   frameGroup: THREE.Group;
+  riderGroup: THREE.Group;
   swingarmGroup: THREE.Group;
   forkBaseGroup: THREE.Group;
   forkSteerGroup: THREE.Group;
@@ -743,6 +744,88 @@ export function createBikeModel(customization: BikeCustomization): BikeMeshSyste
     computerTexture.needsUpdate = true;
   };
 
+  // === LOW-POLY DOWNHILL RIDER PLACEHOLDER FOR THIRD-PERSON VIEW ===
+  const riderGroup = new THREE.Group();
+  riderGroup.name = 'RiderModel';
+
+  const riderJerseyMat = new THREE.MeshStandardMaterial({ color: 0xf97316, roughness: 0.7 }); // High-viz team jersey
+  const riderPantsMat = new THREE.MeshStandardMaterial({ color: 0x18181b, roughness: 0.8 }); // Technical riding pants
+  const helmetMat = new THREE.MeshStandardMaterial({ color: 0x1e293b, roughness: 0.35, metalness: 0.2 }); // Matte shell
+  const visorMat = new THREE.MeshStandardMaterial({ color: 0x09090b, roughness: 0.6 });
+  const goggleLensMat = new THREE.MeshStandardMaterial({ color: 0x06b6d4, metalness: 0.8, roughness: 0.1 });
+  const shoeMat = new THREE.MeshStandardMaterial({ color: 0x27272a, roughness: 0.6 });
+
+  // 1. Torso: Leaning forward in aggressive downhill attack position over top tube
+  const torsoGeom = new THREE.BoxGeometry(0.30, 0.38, 0.20);
+  const torsoMesh = new THREE.Mesh(torsoGeom, riderJerseyMat);
+  torsoMesh.position.set(0, 0.60, 0.08);
+  torsoMesh.rotation.x = 0.58; // 33-degree aggressive attack lean forward
+  riderGroup.add(torsoMesh);
+
+  // 2. Full-Face Downhill Helmet with Visor & Goggles
+  const headGroup = new THREE.Group();
+  headGroup.position.set(0, 0.84, -0.16);
+
+  // Helmet outer shell
+  const helmetGeom = new THREE.DodecahedronGeometry(0.12, 1);
+  const helmetMesh = new THREE.Mesh(helmetGeom, helmetMat);
+  helmetMesh.scale.set(1.0, 1.12, 1.18);
+  headGroup.add(helmetMesh);
+
+  // Full-face chin guard / mouth bar
+  const chinGeom = new THREE.BoxGeometry(0.10, 0.07, 0.12);
+  const chinMesh = new THREE.Mesh(chinGeom, helmetMat);
+  chinMesh.position.set(0, -0.06, -0.10);
+  headGroup.add(chinMesh);
+
+  // Visor / Peak extending forward and slightly up
+  const visorGeom = new THREE.BoxGeometry(0.14, 0.016, 0.13);
+  const visorMesh = new THREE.Mesh(visorGeom, visorMat);
+  visorMesh.position.set(0, 0.09, -0.12);
+  visorMesh.rotation.x = -0.22;
+  headGroup.add(visorMesh);
+
+  // Reflective Goggle Lens
+  const goggleGeom = new THREE.BoxGeometry(0.13, 0.05, 0.03);
+  const goggleMesh = new THREE.Mesh(goggleGeom, goggleLensMat);
+  goggleMesh.position.set(0, 0.02, -0.12);
+  headGroup.add(goggleMesh);
+
+  riderGroup.add(headGroup);
+
+  // 3. Arms connecting shoulders to handlebars
+  const shoulderL = new THREE.Vector3(-0.16, 0.72, -0.04);
+  const riderHandLPos = new THREE.Vector3(-(barWidth / 2 - 0.08), 0.64, -0.42);
+  const armL = createTubeBetween(shoulderL, riderHandLPos, 0.038, riderJerseyMat, 8);
+  riderGroup.add(armL);
+
+  const shoulderR = new THREE.Vector3(0.16, 0.72, -0.04);
+  const riderHandRPos = new THREE.Vector3(barWidth / 2 - 0.08, 0.64, -0.42);
+  const armR = createTubeBetween(shoulderR, riderHandRPos, 0.038, riderJerseyMat, 8);
+  riderGroup.add(armR);
+
+  // 4. Legs connecting hips to pedals (bent knees in downhill attack position)
+  const hipL = new THREE.Vector3(-0.10, 0.48, 0.22);
+  const kneeL = new THREE.Vector3(-0.16, 0.28, 0.10);
+  const footL = new THREE.Vector3(-0.17, 0.06, 0.0);
+  const thighL = createTubeBetween(hipL, kneeL, 0.052, riderPantsMat, 8);
+  const shinL = createTubeBetween(kneeL, footL, 0.042, riderPantsMat, 8);
+  const shoeL = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.05, 0.14), shoeMat);
+  shoeL.position.copy(footL).add(new THREE.Vector3(0, 0, -0.02));
+  riderGroup.add(thighL, shinL, shoeL);
+
+  const hipR = new THREE.Vector3(0.10, 0.48, 0.22);
+  const kneeR = new THREE.Vector3(0.16, 0.28, 0.10);
+  const footR = new THREE.Vector3(0.17, 0.06, 0.0);
+  const thighR = createTubeBetween(hipR, kneeR, 0.052, riderPantsMat, 8);
+  const shinR = createTubeBetween(kneeR, footR, 0.042, riderPantsMat, 8);
+  const shoeR = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.05, 0.14), shoeMat);
+  shoeR.position.copy(footR).add(new THREE.Vector3(0, 0, -0.02));
+  riderGroup.add(thighR, shinR, shoeR);
+
+  // Attach rider to frame hierarchy
+  frameGroup.add(riderGroup);
+
   drawComputerScreen(0, 380, 4);
 
   // Enable standard scene shadows and lighting across the entire bike hierarchy (frame, fork, cockpit, arms)
@@ -913,6 +996,7 @@ export function createBikeModel(customization: BikeCustomization): BikeMeshSyste
   return {
     rootGroup,
     frameGroup,
+    riderGroup,
     swingarmGroup,
     forkBaseGroup,
     forkSteerGroup,

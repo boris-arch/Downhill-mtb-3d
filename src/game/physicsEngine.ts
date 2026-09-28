@@ -115,7 +115,7 @@ export class MTBPhysics {
   private getContact(trail: GeneratedTrail) {
     const point = trail.getPointAtDistance(this.trackDistance);
     const position = point.position.clone().addScaledVector(point.binormal, this.lateralOffset);
-    const insideRibbon = Math.abs(this.lateralOffset) <= point.width * 1.35;
+    const insideRibbon = Math.abs(this.lateralOffset) <= point.width;
 
     if (insideRibbon && trail.getTrackSurfacePoint) {
       const surface = trail.getTrackSurfacePoint(this.trackDistance, this.lateralOffset);
@@ -378,9 +378,24 @@ export class MTBPhysics {
     const dragCoefficient = controls.tuck ? 0.0044 : 0.0058;
     const aeroDrag = this.speed * this.speed * dragCoefficient;
 
-    // 3. Off-Track Grass Terrain Friction: heavily increases rolling resistance so bike quickly loses momentum within 1–2s
-    const isGrass = !insideRibbon || this.currentSurface === 'grass' || this.isOffTrack;
-    const grassResistance = isGrass ? (13.5 + this.speed * 0.45) : 0;
+    // 4. Enforce Off-Track Grass Drag & Lateral Slip:
+    // When the raycast detects grass or when the bike's distance from the center trail spline exceeds the track width
+    const isOffTrackGrass = !insideRibbon || this.currentSurface === 'grass' || Math.abs(this.lateralOffset) > point.width;
+    if (isOffTrackGrass) {
+      // Instantly apply a rolling resistance scalar: multiply forward speed by 0.94 every physics step until speed drops below 30 km/h (8.33 m/s)
+      if (this.speed > 30 / 3.6) {
+        this.speed *= 0.94;
+      }
+
+      // Add lateral slip so carving hard on grass causes the bike to slide out rather than cruise smoothly at 80 km/h
+      if (Math.abs(this.steerAngle) > 0.04) {
+        this.driftFactor = Math.min(1.0, this.driftFactor + Math.abs(this.steerAngle) * 4.0 * dt);
+        this.lateralOffset += Math.sign(this.steerAngle) * this.speed * 0.45 * dt;
+        this.isSkidding = true;
+      }
+    }
+
+    const grassResistance = isOffTrackGrass ? (14.0 + this.speed * 0.5) : 0;
     const rolling = (0.18 + this.speed * 0.012) + grassResistance;
 
     // Damped lateral tire scrub: gentle steering does not kill downhill momentum
@@ -726,10 +741,12 @@ export class MTBPhysics {
       THREE.MathUtils.clamp(dt * 5.5, 0.06, 0.12)
     );
 
-    camera.position.copy(this.camPos);
-    camera.up.copy(this.camUp);
-    camera.lookAt(this.camLookAt);
-    camera.rotation.z += this.currentCameraRoll;
+    if (cameraView !== 'chase_cam') {
+      camera.position.copy(this.camPos);
+      camera.up.copy(this.camUp);
+      camera.lookAt(this.camLookAt);
+      camera.rotation.z += this.currentCameraRoll;
+    }
 
     if (camera instanceof THREE.PerspectiveCamera) {
       const baseFov = cameraView === 'first_person_helmet' ? 82 : cameraView === 'first_person_stem' ? 76 : 70;
