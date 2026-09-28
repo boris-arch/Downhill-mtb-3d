@@ -15,6 +15,21 @@ import { PauseModal } from './components/PauseModal';
 import { soundEngine } from './audio/soundEngine';
 import { MTBPhysics, PlayerControls } from './game/physicsEngine';
 
+const normalizeControlCode = (code: string): string => {
+  switch (code) {
+    case 'ArrowUp':
+      return 'KeyW';
+    case 'ArrowDown':
+      return 'KeyS';
+    case 'ArrowLeft':
+      return 'KeyA';
+    case 'ArrowRight':
+      return 'KeyD';
+    default:
+      return code;
+  }
+};
+
 export default function App() {
   const [bikeConfig, setBikeConfig] = useState<BikeCustomization>(DEFAULT_BIKE);
   const [currentTrack, setCurrentTrack] = useState<TrackData>(TRACKS[0]);
@@ -24,11 +39,9 @@ export default function App() {
   const [showControlsHint, setShowControlsHint] = useState<boolean>(true);
   const [showDebugInfo, setShowDebugInfo] = useState<boolean>(false);
 
-  // Modals
   const [isGarageOpen, setIsGarageOpen] = useState<boolean>(false);
   const [isTrackSelectOpen, setIsTrackSelectOpen] = useState<boolean>(false);
 
-  // Physics & Control references
   const physicsRef = useRef<MTBPhysics | null>(null);
   const controlsRef = useRef<PlayerControls>({
     pedal: false,
@@ -45,24 +58,23 @@ export default function App() {
   });
 
   const setControlState = useCallback((code: string, pressed: boolean) => {
-    switch (code) {
+    const normalizedCode = normalizeControlCode(code);
+    if (!normalizedCode) return;
+
+    switch (normalizedCode) {
       case 'KeyW':
-      case 'ArrowUp':
         controlsRef.current.pedal = !!pressed;
         break;
       case 'KeyS':
-      case 'ArrowDown':
         controlsRef.current.brake = !!pressed;
         break;
       case 'KeyX':
         controlsRef.current.frontBrake = !!pressed;
         break;
       case 'KeyA':
-      case 'ArrowLeft':
         controlsRef.current.steerLeft = !!pressed;
         break;
       case 'KeyD':
-      case 'ArrowRight':
         controlsRef.current.steerRight = !!pressed;
         break;
       case 'Space':
@@ -89,7 +101,6 @@ export default function App() {
     }
   }, []);
 
-  // Telemetry state
   const [telemetry, setTelemetry] = useState<TelemetryData>({
     speedKmh: 0,
     speedMph: 0,
@@ -124,7 +135,6 @@ export default function App() {
     pumpReady: false,
   });
 
-  // Automatic touch device & iPad detection
   const [isTouchDevice, setIsTouchDevice] = useState<boolean>(() => {
     return typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
   });
@@ -135,17 +145,39 @@ export default function App() {
     return () => window.removeEventListener('touchstart', handleTouch);
   }, []);
 
-  // Hide initial instructions after 7 seconds
   useEffect(() => {
     const timer = setTimeout(() => setShowControlsHint(false), 7000);
     return () => clearTimeout(timer);
   }, []);
 
-  // Keyboard controls listener
+  const cycleCamera = useCallback(() => {
+    setCameraView((prev) => {
+      if (prev === 'first_person_helmet') return 'first_person_stem';
+      if (prev === 'first_person_stem') return 'chase_cam';
+      return 'first_person_helmet';
+    });
+  }, []);
+
+  const handleResetTrack = useCallback(() => {
+    if (physicsRef.current) {
+      physicsRef.current.reset();
+    }
+    setGameState('RACING');
+  }, []);
+
+  const handleToggleMute = useCallback(() => {
+    const muted = soundEngine.toggleMute();
+    setIsMuted(muted);
+  }, []);
+
+  const handleControlInput = (code: string, pressed: boolean) => {
+    soundEngine.ensureContext();
+    setControlState(code, pressed);
+  };
+
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
       soundEngine.ensureContext();
-
       if (e.repeat) return;
 
       switch (e.code) {
@@ -256,31 +288,6 @@ export default function App() {
     };
   }, [cycleCamera, handleResetTrack, setControlState]);
 
-  const cycleCamera = useCallback(() => {
-    setCameraView((prev) => {
-      if (prev === 'first_person_helmet') return 'first_person_stem';
-      if (prev === 'first_person_stem') return 'chase_cam';
-      return 'first_person_helmet';
-    });
-  }, []);
-
-  const handleResetTrack = useCallback(() => {
-    if (physicsRef.current) {
-      physicsRef.current.reset();
-    }
-    setGameState('RACING');
-  }, []);
-
-  const handleToggleMute = useCallback(() => {
-    const muted = soundEngine.toggleMute();
-    setIsMuted(muted);
-  }, []);
-
-  const handleControlInput = (code: string, pressed: boolean) => {
-    soundEngine.ensureContext();
-    setControlState(code, pressed);
-  };
-
   const debugInfo = physicsRef.current?.getDebugInfo?.() ?? {
     frontCompression: telemetry.frontForkTravelPercent,
     rearCompression: telemetry.rearShockTravelPercent,
@@ -299,7 +306,6 @@ export default function App() {
       onClick={() => soundEngine.ensureContext()}
       className="relative w-screen h-screen overflow-hidden bg-slate-950 select-none font-sans"
     >
-      {/* 3D WebGL Scene */}
       <GameCanvas
         trackData={currentTrack}
         bikeConfig={bikeConfig}
@@ -311,14 +317,12 @@ export default function App() {
         controlsRef={controlsRef}
       />
 
-      {/* Screen Dirt & Mud Splatters Overlay */}
       <DirtSplatterCanvas
         telemetry={telemetry}
         cameraView={cameraView}
         isPaused={gameState !== 'RACING'}
       />
 
-      {/* Helmet Visor Vignette / Goggle Effect scaling dynamically with G-force load */}
       {cameraView === 'first_person_helmet' && (
         <div
           className="absolute inset-0 pointer-events-none border-t-2 border-b-2 border-black/40 transition-all duration-100"
@@ -349,7 +353,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Main Heads-Up Display */}
       {gameState === 'RACING' && (
         <HUD
           telemetry={telemetry}
@@ -364,7 +367,6 @@ export default function App() {
         />
       )}
 
-      {/* Quick Controls Hint Pill (Hidden on Touch Devices / iPad) */}
       {showControlsHint && !isTouchDevice && gameState === 'RACING' && (
         <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-2xl px-5 py-2.5 shadow-2xl flex items-center gap-3 sm:gap-4 text-[10px] sm:text-xs text-slate-200 z-20">
           <div className="flex items-center gap-1">
@@ -388,7 +390,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Bike Customization Garage Modal */}
       {isGarageOpen && (
         <GarageModal
           currentBike={bikeConfig}
@@ -399,7 +400,6 @@ export default function App() {
         />
       )}
 
-      {/* Trail Head Selector Modal */}
       {isTrackSelectOpen && (
         <TrackSelectModal
           currentTrackId={currentTrack.id}
@@ -411,7 +411,6 @@ export default function App() {
         />
       )}
 
-      {/* Pause Menu Modal */}
       {gameState === 'PAUSED' && (
         <PauseModal
           onResume={() => setGameState('RACING')}
@@ -427,7 +426,6 @@ export default function App() {
         />
       )}
 
-      {/* Finish Screen Modal */}
       {gameState === 'FINISHED' && (
         <FinishModal
           telemetry={telemetry}
@@ -446,3 +444,115 @@ export default function App() {
     </main>
   );
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

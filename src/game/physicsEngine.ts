@@ -40,19 +40,6 @@ interface WheelRayState {
   penetration: number;
 }
 
-/**
- * Step 1 refactor: real independent wheel suspension with raycast contacts.
- *
- * This keeps the existing game-facing public API intact while replacing the
- * fake single-point suspension logic with two true wheel contact states.
- *
- * Design choices:
- * - Front and rear wheel each cast a ray down toward the terrain.
- * - Suspension compression is derived from actual wheel-to-ground distance.
- * - We still expose the public fields frontSuspensionCompression and rearSuspensionCompression
- *   so the rest of the game can keep working unchanged.
- * - We do not yet include full tire friction-circle force modeling here; that is the next step.
- */
 export class MTBPhysics {
   public trackDistance = 0;
   public lateralOffset = 0;
@@ -202,18 +189,14 @@ export class MTBPhysics {
     };
   }
 
-  /**
-   * Cast a downward ray from the wheel world position toward the trail surface.
-   *
-   * The suspension length is the distance from the wheel hub to the ground.
-   * compression = 0 means wheel is at rest, 1 means fully compressed.
-   *
-   * Formula:
-   *   suspensionDistance = wheelRayOrigin.y - groundY
-   *   compression = clamp((restLength - suspensionDistance) / travel, 0, 1)
-   *
-   * This is physically motivated and stable for use in a browser update loop.
-   */
+  private applySmallBumpCompliance(targetCompression: number, wheel: WheelRayState) {
+    // Small bumps should feel soft and compliant before the wheel reaches the mid-stroke.
+    // This prevents harsh jitter from tiny terrain chatter while preserving firm support under heavier loads.
+    const smallBumpInfluence = 1.0 - Math.min(1, wheel.compression * 1.8);
+    const smallBumpScale = 0.45 + smallBumpInfluence * 0.55;
+    return targetCompression * smallBumpScale;
+  }
+
   private updateWheelRaycast(
     wheel: WheelRayState,
     trail: GeneratedTrail,
@@ -231,12 +214,14 @@ export class MTBPhysics {
       1
     );
 
+    const softenedTarget = this.applySmallBumpCompliance(targetCompression, wheel);
     const prevCompression = wheel.compression;
-    const compressionDelta = targetCompression - prevCompression;
+    const compressionDelta = softenedTarget - prevCompression;
     wheel.compressionVelocity = compressionDelta / Math.max(dt, 1 / 240);
 
     const stiffnessBlend = 1 - Math.exp(-dt * 20);
-    wheel.compression += (targetCompression - wheel.compression) * stiffnessBlend;
+    const complianceFactor = 0.72 + (1.0 - Math.min(1, wheel.compression * 1.4)) * 0.4;
+    wheel.compression += (softenedTarget - wheel.compression) * stiffnessBlend * complianceFactor;
 
     const progressiveRate = 1.0 + 2.5 * Math.pow(wheel.compression, 2.0);
     const springForce = wheel.springRate * progressiveRate * wheel.compression * 0.35;
@@ -799,33 +784,34 @@ export class MTBPhysics {
     target.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), this.pitchAngle));
     target.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 0, 1), this.leanAngle));
     if (!this.isGrounded) target.multiply(new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), this.airWhipAngle));
-    this.currentOrientation.slerp(target, 1 - Math.exp(-18 * dt));
+    const smoothBob = 1 - Math.exp(-dt * 12.0);
+    this.currentOrientation.slerp(target, smoothBob);
     bikeGroup.quaternion.copy(this.currentOrientation);
 
     const bikeQuat = bikeGroup.quaternion;
+    const cameraResponse = 1 - Math.exp(-dt * (cameraView === 'chase_cam' ? 12 : 18));
+
     if (cameraView === 'first_person_helmet') {
       const eyeOffset = new THREE.Vector3(0, 1.14, 0.12).applyQuaternion(bikeQuat);
       const targetCamPos = groundPos.clone().add(eyeOffset);
-      this.camPos.lerp(targetCamPos, 1 - Math.exp(-25 * dt));
+      this.camPos.lerp(targetCamPos, cameraResponse);
 
       const lookOffset = new THREE.Vector3(0, 0.60, -12.0).applyQuaternion(bikeQuat);
       const targetLookAt = groundPos.clone().add(lookOffset);
-      this.camLookAt.lerp(targetLookAt, 1 - Math.exp(-18 * dt));
+      this.camLookAt.lerp(targetLookAt, 1 - Math.exp(-dt * 16));
 
       const bikeUp = new THREE.Vector3(0, 1, 0).applyQuaternion(bikeQuat);
       const stabilizedUp = new THREE.Vector3(0, 1, 0).lerp(bikeUp, 0.38).normalize();
-      const cameraRollLerp = THREE.MathUtils.clamp(dt * 6.5, 0.08, 0.12);
-      this.camUp.lerp(stabilizedUp, cameraRollLerp);
+      this.camUp.lerp(stabilizedUp, 1 - Math.exp(-dt * 8));
     } else if (cameraView === 'first_person_stem') {
       const targetCamPos = groundPos.clone().add(new THREE.Vector3(0, 0.98, -0.22).applyQuaternion(bikeQuat));
       const targetLookAt = groundPos.clone().add(new THREE.Vector3(0, 0.8, -14).applyQuaternion(bikeQuat));
-      this.camPos.lerp(targetCamPos, 1 - Math.exp(-24 * dt));
-      this.camLookAt.lerp(targetLookAt, 1 - Math.exp(-20 * dt));
+      this.camPos.lerp(targetCamPos, cameraResponse);
+      this.camLookAt.lerp(targetLookAt, 1 - Math.exp(-dt * 15));
 
       const bikeUp = new THREE.Vector3(0, 1, 0).applyQuaternion(bikeQuat);
       const stabilizedUp = new THREE.Vector3(0, 1, 0).lerp(bikeUp, 0.42).normalize();
-      const cameraRollLerp = THREE.MathUtils.clamp(dt * 6.5, 0.08, 0.12);
-      this.camUp.lerp(stabilizedUp, cameraRollLerp);
+      this.camUp.lerp(stabilizedUp, 1 - Math.exp(-dt * 8));
     } else {
       const focusPos = groundPos.clone().add(new THREE.Vector3(0, 1.05, 0));
       const idealOffset = new THREE.Vector3(0.28, 1.48, 3.2).applyQuaternion(bikeQuat);
@@ -833,8 +819,7 @@ export class MTBPhysics {
 
       const bikeUp = new THREE.Vector3(0, 1, 0).applyQuaternion(bikeQuat);
       const stabilizedUp = new THREE.Vector3(0, 1, 0).lerp(bikeUp, 0.32).normalize();
-      const cameraRollLerp = THREE.MathUtils.clamp(dt * 6.5, 0.08, 0.12);
-      this.camUp.lerp(stabilizedUp, cameraRollLerp);
+      this.camUp.lerp(stabilizedUp, 1 - Math.exp(-dt * 7));
 
       const numSamples = 5;
       for (let s = 1; s <= numSamples; s++) {
@@ -853,8 +838,8 @@ export class MTBPhysics {
         targetCamPos.y = camGroundH;
       }
 
-      this.camPos.lerp(targetCamPos, 1 - Math.exp(-14 * dt));
-      this.camLookAt.lerp(groundPos.clone().add(new THREE.Vector3(0.06, 0.72, -4.2).applyQuaternion(bikeQuat)), 1 - Math.exp(-15 * dt));
+      this.camPos.lerp(targetCamPos, 1 - Math.exp(-dt * 9));
+      this.camLookAt.lerp(groundPos.clone().add(new THREE.Vector3(0.06, 0.72, -4.2).applyQuaternion(bikeQuat)), 1 - Math.exp(-dt * 10));
     }
 
     const safeFloorY = trail.getTerrainHeight(this.camPos.x, this.camPos.z) + 0.45;
@@ -871,9 +856,9 @@ export class MTBPhysics {
         this.camPos.y = safeFloorY;
       }
     } else if (this.isGrounded && this.speed > 8.0) {
-      const rumbleIntensity = Math.min(0.024, (this.speed / 26.0) * (point.surface === 'rock' ? 0.022 : 0.012));
-      this.camPos.x += (Math.random() - 0.5) * rumbleIntensity;
-      this.camPos.y += (Math.random() - 0.5) * rumbleIntensity;
+      const rumbleIntensity = Math.min(0.018, (this.speed / 26.0) * (point.surface === 'rock' ? 0.022 : 0.012));
+      this.camPos.x += (Math.random() - 0.5) * rumbleIntensity * 0.5;
+      this.camPos.y += (Math.random() - 0.5) * rumbleIntensity * 0.5;
     }
 
     const speedRatio = Math.min(1.0, this.speed / 18.0);
@@ -881,7 +866,7 @@ export class MTBPhysics {
     this.currentCameraRoll = THREE.MathUtils.lerp(
       this.currentCameraRoll,
       targetCameraRoll,
-      THREE.MathUtils.clamp(dt * 5.5, 0.06, 0.12)
+      THREE.MathUtils.clamp(dt * 4.5, 0.04, 0.1)
     );
 
     if (cameraView !== 'chase_cam') {
@@ -896,7 +881,7 @@ export class MTBPhysics {
       const speedKmh = this.speed * 3.6;
       const speedWarp = Math.min(15, Math.max(0, (speedKmh - 50) / 40 * 15));
       const targetFov = baseFov + speedWarp;
-      camera.fov += (targetFov - camera.fov) * (1 - Math.exp(-8 * dt));
+      camera.fov += (targetFov - camera.fov) * (1 - Math.exp(-dt * 6));
       camera.updateProjectionMatrix();
     }
   }
@@ -945,3 +930,18 @@ export class MTBPhysics {
     };
   }
 }
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
