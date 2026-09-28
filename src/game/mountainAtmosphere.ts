@@ -4,43 +4,44 @@ import * as THREE from 'three';
  * Creates an atmospheric downhill mountain skydome with dynamic sun disc,
  * horizon haze, and cloud layers.
  */
-export function createMountainAtmosphere(skyColorHex: string, fogColorHex: string, sunColorHex: string): THREE.Group {
+export function createMountainAtmosphere(
+  skyColorHex: string | number,
+  fogColorHex: string | number,
+  sunColorHex: string | number
+): THREE.Group {
   const atmosGroup = new THREE.Group();
 
-  // 1. Inverted Atmospheric Skydome
-  const skyGeom = new THREE.SphereGeometry(750, 32, 24);
+  // 1. Inverted Atmospheric Hemispherical Skydome (Camera-Centered, Local Normal Gradient)
+  const skyGeom = new THREE.SphereGeometry(1200, 32, 24);
   const skyMat = new THREE.ShaderMaterial({
     uniforms: {
       topColor: { value: new THREE.Color(skyColorHex) },
       bottomColor: { value: new THREE.Color(fogColorHex) },
-      offset: { value: 30 },
-      exponent: { value: 0.65 },
     },
     vertexShader: `
-      varying vec3 vWorldPosition;
+      varying float vElevation;
       void main() {
-        vec4 worldPosition = modelMatrix * vec4(position, 1.0);
-        vWorldPosition = worldPosition.xyz;
+        vElevation = normalize(position).y;
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }
     `,
     fragmentShader: `
       uniform vec3 topColor;
       uniform vec3 bottomColor;
-      uniform float offset;
-      uniform float exponent;
-      varying vec3 vWorldPosition;
+      varying float vElevation;
       void main() {
-        float h = normalize(vWorldPosition + offset).y;
-        float p = max(pow(max(h, 0.0), exponent), 0.0);
+        float h = clamp(vElevation * 0.95 + 0.05, 0.0, 1.0);
+        float p = pow(h, 0.65);
         gl_FragColor = vec4(mix(bottomColor, topColor, p), 1.0);
       }
     `,
     side: THREE.BackSide,
     depthWrite: false,
+    depthTest: true,
   });
 
   const skyDome = new THREE.Mesh(skyGeom, skyMat);
+  skyDome.renderOrder = -100;
   atmosGroup.add(skyDome);
 
   // 2. Distant Sun Disc with Glow

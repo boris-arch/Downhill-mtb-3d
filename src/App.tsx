@@ -7,6 +7,7 @@ import { DEFAULT_BIKE } from './data/bikeParts';
 import { TRACKS } from './data/tracks';
 import { GameCanvas } from './components/GameCanvas';
 import { HUD } from './components/HUD';
+import { DirtSplatterCanvas } from './components/DirtSplatterCanvas';
 import { GarageModal } from './components/GarageModal';
 import { TrackSelectModal } from './components/TrackSelectModal';
 import { FinishModal } from './components/FinishModal';
@@ -76,6 +77,17 @@ export default function App() {
     driftPercent: 0,
     pumpReady: false,
   });
+
+  // Automatic touch device & iPad detection
+  const [isTouchDevice, setIsTouchDevice] = useState<boolean>(() => {
+    return typeof window !== 'undefined' && ('ontouchstart' in window || navigator.maxTouchPoints > 0);
+  });
+
+  useEffect(() => {
+    const handleTouch = () => setIsTouchDevice(true);
+    window.addEventListener('touchstart', handleTouch, { once: true, passive: true });
+    return () => window.removeEventListener('touchstart', handleTouch);
+  }, []);
 
   // Hide initial instructions after 7 seconds
   useEffect(() => {
@@ -266,12 +278,20 @@ export default function App() {
         controlsRef={controlsRef}
       />
 
-      {/* Helmet Visor Vignette / Goggle Effect */}
+      {/* Screen Dirt & Mud Splatters Overlay */}
+      <DirtSplatterCanvas
+        telemetry={telemetry}
+        cameraView={cameraView}
+        isPaused={gameState !== 'RACING'}
+      />
+
+      {/* Helmet Visor Vignette / Goggle Effect scaling dynamically with G-force load */}
       {cameraView === 'first_person_helmet' && (
         <div
-          className="absolute inset-0 pointer-events-none shadow-[inset_0_0_90px_rgba(0,0,0,0.7)] border-t-2 border-b-2 border-black/40"
+          className="absolute inset-0 pointer-events-none border-t-2 border-b-2 border-black/40 transition-all duration-100"
           style={{
-            background: 'radial-gradient(circle, transparent 65%, rgba(15, 23, 42, 0.45) 100%)',
+            boxShadow: `inset 0 0 ${Math.min(140, 80 + (telemetry.gForce - 1.0) * 35)}px rgba(0,0,0,${Math.min(0.88, 0.65 + (telemetry.gForce - 1.0) * 0.12)})`,
+            background: `radial-gradient(circle, transparent ${Math.max(45, 65 - (telemetry.gForce - 1.0) * 12)}%, rgba(15, 23, 42, ${Math.min(0.7, 0.42 + (telemetry.gForce - 1.0) * 0.14)}) 100%)`,
           }}
         />
       )}
@@ -291,8 +311,8 @@ export default function App() {
         />
       )}
 
-      {/* Quick Controls Hint Pill */}
-      {showControlsHint && gameState === 'RACING' && (
+      {/* Quick Controls Hint Pill (Hidden on Touch Devices / iPad) */}
+      {showControlsHint && !isTouchDevice && gameState === 'RACING' && (
         <div className="absolute top-20 left-1/2 -translate-x-1/2 bg-slate-900/90 backdrop-blur-md border border-slate-700/80 rounded-2xl px-5 py-2.5 shadow-2xl flex items-center gap-3 sm:gap-4 text-[11px] sm:text-xs font-mono text-slate-300 pointer-events-none animate-pulse">
           <div className="flex items-center gap-1">
             <kbd className="bg-slate-800 px-1.5 py-0.5 rounded text-white font-bold">W</kbd> Pedal

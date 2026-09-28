@@ -2,6 +2,7 @@ import React from 'react';
 import { TrackData } from '../types/game';
 import { TRACKS } from '../data/tracks';
 import { Mountain, Compass, Timer, ArrowDownRight, X, Play } from 'lucide-react';
+import { TrackTerrainViewer } from './TrackTerrainViewer';
 
 interface TrackSelectModalProps {
   currentTrackId: string;
@@ -66,7 +67,10 @@ export const TrackSelectModal: React.FC<TrackSelectModalProps> = ({
                     {t.difficulty}
                   </span>
                   <h3 className="text-base font-black text-white mb-1">{t.name}</h3>
-                  <p className="text-xs text-slate-400 mb-4 line-clamp-2">{t.description}</p>
+                  <p className="text-xs text-slate-400 mb-3 line-clamp-2">{t.description}</p>
+                  
+                  {/* React Three Fiber 3D Topographical Terrain Preview */}
+                  <TrackTerrainViewer track={t} />
                 </div>
 
                 <div className="space-y-2 pt-3 border-t border-slate-800/80 text-xs font-mono text-slate-300">

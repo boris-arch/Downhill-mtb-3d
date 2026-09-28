@@ -97,6 +97,20 @@ export interface TelemetryData {
   rearBrakePressure: number; // 0 to 1
   driftPercent: number; // 0 to 100
   pumpReady: boolean;
+  isOffTrack?: boolean;
+  offTrackSeconds?: number;
+  isRespawning?: boolean;
+  splitDelta?: { splitIndex: number; deltaSeconds: number; isAhead: boolean } | null;
+  approachingGate?: GateApproachInfo | null;
+}
+
+export interface GateApproachInfo {
+  gateNumber: number;
+  distanceToGate: number;
+  lateralOffset: number;
+  gateHalfWidth: number;
+  isAligned: boolean;
+  isFinish: boolean;
 }
 
 export interface TrackWaypoint {

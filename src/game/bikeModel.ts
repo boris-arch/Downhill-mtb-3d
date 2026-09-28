@@ -28,7 +28,10 @@ export interface BikeMeshSystem {
     speedKmh: number,
     altitude: number,
     currentGear: number,
-    frontBrakePull?: number
+    frontBrakePull?: number,
+    isTucking?: boolean,
+    isPumping?: boolean,
+    isSkidding?: boolean
   ) => void;
   updateMaterials: (customization: BikeCustomization) => void;
 }
@@ -536,20 +539,32 @@ export function createBikeModel(customization: BikeCustomization): BikeMeshSyste
   gripR.position.set(barWidth / 2 - 0.07, 0.026, -0.038);
   cockpitGroup.add(gripR);
 
-  // Alloy Grip Lock-On Rings (Inner & Outer collars)
+  // Alloy Grip Lock-On Rings (Inner & Outer collars with bright orange bar ends)
   const lockRingGeom = new THREE.CylinderGeometry(0.021, 0.021, 0.008, 14);
   lockRingGeom.rotateZ(Math.PI / 2);
   const lockRingMat = new THREE.MeshStandardMaterial({ color: 0x0f172a, metalness: 0.9, roughness: 0.2 });
+  const orangeBarEndMat = new THREE.MeshStandardMaterial({ color: 0xf97316, metalness: 0.75, roughness: 0.25 });
 
-  const lockL1 = new THREE.Mesh(lockRingGeom, lockRingMat);
-  lockL1.position.set(-(barWidth / 2 - 0.005), 0.026, -0.038);
+  // Vibrant CNC Orange Handlebar End Plugs
+  const barEndGeom = new THREE.CylinderGeometry(0.021, 0.021, 0.016, 16);
+  barEndGeom.rotateZ(Math.PI / 2);
+  const barEndL = new THREE.Mesh(barEndGeom, orangeBarEndMat);
+  barEndL.position.set(-(barWidth / 2 - 0.002), 0.026, -0.038);
+  cockpitGroup.add(barEndL);
+
+  const barEndR = new THREE.Mesh(barEndGeom, orangeBarEndMat);
+  barEndR.position.set(barWidth / 2 - 0.002, 0.026, -0.038);
+  cockpitGroup.add(barEndR);
+
+  const lockL1 = new THREE.Mesh(lockRingGeom, orangeBarEndMat);
+  lockL1.position.set(-(barWidth / 2 - 0.008), 0.026, -0.038);
   cockpitGroup.add(lockL1);
   const lockL2 = new THREE.Mesh(lockRingGeom, lockRingMat);
   lockL2.position.set(-(barWidth / 2 - 0.135), 0.026, -0.038);
   cockpitGroup.add(lockL2);
 
-  const lockR1 = new THREE.Mesh(lockRingGeom, lockRingMat);
-  lockR1.position.set(barWidth / 2 - 0.005, 0.026, -0.038);
+  const lockR1 = new THREE.Mesh(lockRingGeom, orangeBarEndMat);
+  lockR1.position.set(barWidth / 2 - 0.008, 0.026, -0.038);
   cockpitGroup.add(lockR1);
   const lockR2 = new THREE.Mesh(lockRingGeom, lockRingMat);
   lockR2.position.set(barWidth / 2 - 0.135, 0.026, -0.038);
@@ -568,6 +583,13 @@ export function createBikeModel(customization: BikeCustomization): BikeMeshSyste
   rightBrakeLever.rotation.y = -0.25;
   cockpitGroup.add(rightBrakeLever);
 
+  // Jersey Sleeve Fabric Material for low-poly rider arms
+  const jerseyMat = new THREE.MeshStandardMaterial({
+    color: 0x1e293b,
+    roughness: 0.85,
+    metalness: 0.08,
+  });
+
   // Carbon Knuckle Guard & Details Material
   const gloveCarbonMat = new THREE.MeshStandardMaterial({
     color: 0x18181b,
@@ -580,7 +602,7 @@ export function createBikeModel(customization: BikeCustomization): BikeMeshSyste
     metalness: 0.05,
   });
 
-  // Function to create an articulated low-poly mountain bike glove wrapped firmly around the handlebar grip
+  // Function to create an articulated low-poly mountain bike glove & arm wrapped firmly around the handlebar grip
   const createMTBGlove = (isLeft: boolean): THREE.Group => {
     const glove = new THREE.Group();
 
@@ -619,6 +641,23 @@ export function createBikeModel(customization: BikeCustomization): BikeMeshSyste
     const cuff = new THREE.Mesh(cuffGeom, gloveCarbonMat);
     cuff.position.set(0, 0.014, 0.038);
     glove.add(cuff);
+
+    // 6. Low-Poly Rider Forearm in Athletic Technical Jersey Sleeve
+    // Reaches from handlebar grips backwards toward rider torso in cockpit
+    const forearmGeom = new THREE.CylinderGeometry(0.048, 0.038, 0.44, 8);
+    forearmGeom.rotateX(Math.PI / 2.4); // angled back ~75 degrees toward rider
+    forearmGeom.rotateY(isLeft ? -0.28 : 0.28); // angled inward toward chest
+    const forearm = new THREE.Mesh(forearmGeom, jerseyMat);
+    forearm.position.set(isLeft ? 0.06 : -0.06, 0.15, 0.24);
+    forearm.castShadow = true;
+    glove.add(forearm);
+
+    // 7. Elbow Guard Patch (D3O Armor)
+    const padGeom = new THREE.BoxGeometry(0.078, 0.032, 0.11);
+    const pad = new THREE.Mesh(padGeom, gloveCarbonMat);
+    pad.position.set(isLeft ? 0.09 : -0.09, 0.25, 0.40);
+    pad.rotation.x = 0.45;
+    glove.add(pad);
 
     // Subtle natural inward wrist angle
     glove.rotation.z = isLeft ? -0.1 : 0.1;
@@ -721,6 +760,12 @@ export function createBikeModel(customization: BikeCustomization): BikeMeshSyste
   let currentRearBrakePull = 0;
   let currentFrontBrakePull = 0;
   let currentSteer = 0;
+  let currentFrontWheelRot = 0;
+  let currentRearWheelRot = 0;
+  let prevInputWheelRot = 0;
+
+  const baseHandLPos = new THREE.Vector3(-(barWidth / 2 - 0.07), 0.026, -0.038);
+  const baseHandRPos = new THREE.Vector3(barWidth / 2 - 0.07, 0.026, -0.038);
 
   const updateTransforms = (
     steerAngle: number,
@@ -732,23 +777,44 @@ export function createBikeModel(customization: BikeCustomization): BikeMeshSyste
     speedKmh: number,
     altitude: number,
     currentGear: number,
-    frontBrakePull: number = 0 // front brake pull
+    frontBrakePull: number = 0, // front brake pull
+    isTucking: boolean = false,
+    isPumping: boolean = false,
+    isSkidding: boolean = false
   ) => {
-    // 1. Smooth Steer Fork along headtube axis
+    // 1. Smooth Steer Fork along 63.5° headtube rake axis
     currentSteer += (steerAngle - currentSteer) * 0.45;
-    forkSteerGroup.rotation.y = currentSteer;
+    forkSteerGroup.rotation.y = -currentSteer;
+    // Dynamic handlebar camber tilt and organic rake dive into corners
+    cockpitGroup.rotation.z = -currentSteer * 0.12;
+    cockpitGroup.rotation.x = -Math.abs(currentSteer) * 0.05;
 
-    // 2. Front Fork Travel Compression (0 to 200mm = 0 to 0.20m)
+    // 2. Front Fork Travel Compression (0 to 170mm = 0 to 0.17m)
     // Travel slides fork lowers UP along the stanchions (+Y in local steer group coordinate space)
-    // Standard baseline uncompressed position is -0.30m relative to lower crown
-    // At full 100% compression, forkLowersGroup rises by up to 0.20m (200mm DH travel)
-    const targetTravel = Math.max(0, Math.min(0.20, frontCompression * 0.20));
+    const targetTravel = Math.max(0, Math.min(0.17, frontCompression * 0.17));
     currentFrontTravel += (targetTravel - currentFrontTravel) * 0.55;
     forkLowersGroup.position.y = -0.30 + currentFrontTravel;
 
-    // 3. Wheel Spin (Rotation around local X axis)
-    frontWheelGroup.rotation.x = wheelRot;
-    rearWheelGroup.rotation.x = wheelRot;
+    // 3. Independent Wheel Rotation & Realistic Brake Lockup
+    const deltaWheel = wheelRot - prevInputWheelRot;
+    prevInputWheelRot = wheelRot;
+
+    // Front wheel: continues rolling unless front brake is pinned (> 0.85)
+    const frontLocked = frontBrakePull > 0.85;
+    if (!frontLocked) {
+      currentFrontWheelRot += deltaWheel;
+    }
+    frontWheelGroup.rotation.x = currentFrontWheelRot;
+
+    // Rear wheel: locks up during heavy braking (> 0.65) or active drifting/skidding
+    const rearLocked = brakePull > 0.65 || isSkidding;
+    if (!rearLocked) {
+      currentRearWheelRot += deltaWheel;
+    } else {
+      // Slight slip during skid instead of continuous free spin
+      currentRearWheelRot += deltaWheel * 0.06;
+    }
+    rearWheelGroup.rotation.x = currentRearWheelRot;
 
     // 4. Pedal & Crank Rotation with matching pedal level attitudes
     crankGroup.rotation.x = pedalRot;
@@ -761,21 +827,74 @@ export function createBikeModel(customization: BikeCustomization): BikeMeshSyste
     leftBrakeLever.rotation.y = 0.25 - currentRearBrakePull * 0.16;
     rightBrakeLever.rotation.y = -0.25 + currentFrontBrakePull * 0.16;
 
-    // 6. Articulated Rear Suspension Swingarm & Shock Compression (0 to 200mm wheel travel)
-    // As the rear wheel hits bumps or the rider pumps into berms, the entire swingarm
-    // arches upward around the main pivot at the bottom bracket (posBB).
-    // An upward swing corresponds to positive rotation around local X axis (+pitch up)
+    // 6. Articulated Rear Suspension Swingarm & Derailleur Cage Reaction
     const targetShock = Math.max(0, Math.min(1.0, rearCompression));
     currentShockTravel += (targetShock - currentShockTravel) * 0.55;
     
-    // Max swingarm rotation ~0.20 radians (~11.5 degrees) provides ~140-200mm vertical axle displacement
+    // Upward swing of rear triangle around main pivot posBB
     swingarmGroup.rotation.x = currentShockTravel * 0.19;
+
+    // Articulated rear derailleur cage pivots forward under chain growth
+    derailleurGroup.rotation.x = -currentShockTravel * 0.45;
 
     // Compresses coil spring and stanchion reservoir along local Y/Z axis
     rearShockGroup.scale.set(1.0 + currentShockTravel * 0.08, 1.0 - currentShockTravel * 0.32, 1.0 + currentShockTravel * 0.08);
     rearShockGroup.position.y = 0.52 - currentShockTravel * 0.032;
 
-    // 7. Update GPS Screen every 6 frames
+    // 7. Dynamic Rider Forearm & Elbow Articulation (Compression flex, tuck, and pump)
+    const compRatio = Math.min(1.0, currentFrontTravel / 0.17);
+    let targetHandLY = baseHandLPos.y;
+    let targetHandRY = baseHandRPos.y;
+    let targetHandLZ = baseHandLPos.z;
+    let targetHandRZ = baseHandRPos.z;
+
+    let targetRotLX = -compRatio * 0.22;
+    let targetRotRX = -compRatio * 0.22;
+    let targetRotLZ = -0.10 - compRatio * 0.35; // Elbow flares out under fork compression
+    let targetRotRZ = 0.10 + compRatio * 0.35;  // Elbow flares out under fork compression
+    let targetRotLY = currentSteer * 0.25;
+    let targetRotRY = currentSteer * 0.25;
+
+    if (isTucking) {
+      // Aerodynamic low tuck: elbows tuck in, arms drop down
+      targetHandLY -= 0.032;
+      targetHandRY -= 0.032;
+      targetHandLZ -= 0.016;
+      targetHandRZ -= 0.016;
+      targetRotLX -= 0.25;
+      targetRotRX -= 0.25;
+      targetRotLZ = -0.02; // Tucked elbows
+      targetRotRZ = 0.02;  // Tucked elbows
+    } else if (isPumping) {
+      // Pumping preload: weight driven downward into bars with wider elbow stance
+      targetHandLY -= 0.022;
+      targetHandRY -= 0.022;
+      targetRotLZ -= 0.20;
+      targetRotRZ += 0.20;
+    }
+
+    handL.position.y += (targetHandLY - handL.position.y) * 0.35;
+    handR.position.y += (targetHandRY - handR.position.y) * 0.35;
+    handL.position.z += (targetHandLZ - handL.position.z) * 0.35;
+    handR.position.z += (targetHandRZ - handR.position.z) * 0.35;
+
+    handL.rotation.x += (targetRotLX - handL.rotation.x) * 0.35;
+    handR.rotation.x += (targetRotRX - handR.rotation.x) * 0.35;
+    handL.rotation.y += (targetRotLY - handL.rotation.y) * 0.35;
+    handR.rotation.y += (targetRotRY - handR.rotation.y) * 0.35;
+    handL.rotation.z += (targetRotLZ - handL.rotation.z) * 0.35;
+    handR.rotation.z += (targetRotRZ - handR.rotation.z) * 0.35;
+
+    // 8. Handlebar Trail Micro-Chatter (Damped vibration at speed)
+    if (speedKmh > 12) {
+      const chatterMag = Math.min(0.0022, (speedKmh / 75) * (compRatio > 0.25 ? 0.0016 : 0.0006));
+      cockpitGroup.position.x = (Math.random() - 0.5) * chatterMag;
+      cockpitGroup.position.y = (Math.random() - 0.5) * chatterMag;
+    } else {
+      cockpitGroup.position.set(0, 0, 0);
+    }
+
+    // 9. Update GPS Screen every 6 frames
     frameCount++;
     if (frameCount % 6 === 0) {
       drawComputerScreen(speedKmh, altitude, currentGear);
